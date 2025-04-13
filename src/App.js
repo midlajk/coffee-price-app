@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Percent, Save, Plus, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-
 export default function CoffeePriceList() {
   const [products, setProducts] = useState(() => {
     const savedProducts = localStorage.getItem('coffee-products');
