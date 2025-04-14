@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/coffee-price-app/static/css/main.ff65b44a.css",
-    "main.js": "/coffee-price-app/static/js/main.9d548deb.js",
+    "main.js": "/coffee-price-app/static/js/main.c701c3b5.js",
     "static/js/453.42df0ed9.chunk.js": "/coffee-price-app/static/js/453.42df0ed9.chunk.js",
     "index.html": "/coffee-price-app/index.html",
     "main.ff65b44a.css.map": "/coffee-price-app/static/css/main.ff65b44a.css.map",
-    "main.9d548deb.js.map": "/coffee-price-app/static/js/main.9d548deb.js.map",
+    "main.c701c3b5.js.map": "/coffee-price-app/static/js/main.c701c3b5.js.map",
     "453.42df0ed9.chunk.js.map": "/coffee-price-app/static/js/453.42df0ed9.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.ff65b44a.css",
-    "static/js/main.9d548deb.js"
+    "static/js/main.c701c3b5.js"
   ]
 }
