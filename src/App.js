@@ -13,6 +13,7 @@ export default function CoffeePriceList() {
   const [newProduct, setNewProduct] = useState({ name: '', price: '', category: 'Arabica' });
   const [isUpdatePositive, setIsUpdatePositive] = useState(true);
   const [newCategory, setNewCategory] = useState('');
+  const [lastUpdate, setLastUpdate] = useState(0);
   
   // UI state
   const [view, setView] = useState('products');
@@ -20,6 +21,7 @@ export default function CoffeePriceList() {
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [syncStatus, setSyncStatus] = useState('idle');
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Firebase state
   const [firebaseConfig, setFirebaseConfig] = useState({
@@ -48,9 +50,8 @@ export default function CoffeePriceList() {
     }
   }, [firebaseConfig]);
 
-  // Load data from local storage initially, then try to fetch from Firebase
+  // Load data from local storage initially
   useEffect(() => {
-    // First load from localStorage as fallback
     const savedProducts = localStorage.getItem('coffee-products');
     const savedCategories = localStorage.getItem('coffee-categories');
     
@@ -58,11 +59,11 @@ export default function CoffeePriceList() {
       setProducts(JSON.parse(savedProducts));
     } else {
       setProducts([
-        { id: 1, name: 'Ethiopian Yirgacheffe', price: 14.99, category: 'Arabica' },
-        { id: 2, name: 'Colombian Supremo', price: 12.99, category: 'Arabica' },
-        { id: 3, name: 'Brazilian Santos', price: 10.50, category: 'Arabica' },
-        { id: 4, name: 'Vietnamese Robusta', price: 8.75, category: 'Robusta' },
-        { id: 5, name: 'Indian Robusta', price: 7.99, category: 'Robusta' }
+        { id: 1, name: 'Ethiopian Yirgacheffe', price: 14.99, category: 'Arabica', updatedAt: Date.now() },
+        { id: 2, name: 'Colombian Supremo', price: 12.99, category: 'Arabica', updatedAt: Date.now() },
+        { id: 3, name: 'Brazilian Santos', price: 10.50, category: 'Arabica', updatedAt: Date.now() },
+        { id: 4, name: 'Vietnamese Robusta', price: 8.75, category: 'Robusta', updatedAt: Date.now() },
+        { id: 5, name: 'Indian Robusta', price: 7.99, category: 'Robusta', updatedAt: Date.now() }
       ]);
     }
     
@@ -70,7 +71,6 @@ export default function CoffeePriceList() {
       setCategories(JSON.parse(savedCategories));
     }
     
-    // Check if we have stored Firebase config
     const storedConfig = localStorage.getItem('firebase-config');
     if (storedConfig) {
       setFirebaseConfig(JSON.parse(storedConfig));
@@ -83,18 +83,31 @@ export default function CoffeePriceList() {
       const productsRef = ref(db, 'sharedData/products');
       const categoriesRef = ref(db, 'sharedData/categories');
       
-      // Set up products listener
+      // Products listener with proper data conversion
       onValue(productsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          // Convert object to array if needed
-          const productsArray = Array.isArray(data) ? data : Object.values(data);
-          setProducts(productsArray);
-          localStorage.setItem('coffee-products', JSON.stringify(productsArray));
+        const firebaseData = snapshot.val();
+        if (firebaseData) {
+          const remoteUpdateTime = firebaseData.lastUpdated || 0;
+          const remoteData = firebaseData.data || [];
+          
+          if (remoteUpdateTime > lastUpdate) {
+            let productsArray;
+            if (Array.isArray(remoteData)) {
+              productsArray = remoteData;
+            } else if (typeof remoteData === 'object') {
+              productsArray = Object.values(remoteData).sort((a, b) => a.id - b.id);
+            } else {
+              productsArray = [];
+            }
+            
+            setProducts(productsArray);
+            localStorage.setItem('coffee-products', JSON.stringify(productsArray));
+            setLastUpdate(remoteUpdateTime);
+          }
         }
       });
       
-      // Set up categories listener
+      // Categories listener
       onValue(categoriesRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -103,20 +116,24 @@ export default function CoffeePriceList() {
         }
       });
       
-      // Cleanup function
       return () => {
         off(productsRef);
         off(categoriesRef);
       };
     }
-  }, [firebaseInitialized, db]);
+  }, [firebaseInitialized, db, lastUpdate]);
 
-  // Save to Firebase when data changes
+  // Save to Firebase with timestamp
   const saveToFirebase = async (dataType, data) => {
     if (firebaseInitialized && db) {
       try {
         setSyncStatus('syncing');
-        await set(ref(db, `sharedData/${dataType}`), data);
+        const updateTime = Date.now();
+        await set(ref(db, `sharedData/${dataType}`), {
+          data,
+          lastUpdated: updateTime
+        });
+        setLastUpdate(updateTime);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 2000);
       } catch (error) {
@@ -149,7 +166,7 @@ export default function CoffeePriceList() {
     (selectedCategory === 'All' || product.category === selectedCategory)
   );
   
-  // Function to sync data with Firebase
+  // Sync data with Firebase
   const syncWithCloud = () => {
     if (firebaseInitialized) {
       saveToFirebase('products', products);
@@ -160,7 +177,7 @@ export default function CoffeePriceList() {
     }
   };
   
-  // Function to handle bulk price updates
+  // Handle bulk price updates
   const handleBulkUpdate = () => {
     const modifier = isUpdatePositive ? 1 + (bulkPercent / 100) : 1 - (bulkPercent / 100);
     
@@ -168,7 +185,8 @@ export default function CoffeePriceList() {
       if (selectedCategory === 'All' || product.category === selectedCategory) {
         return {
           ...product,
-          price: +(product.price * modifier).toFixed(2)
+          price: +(product.price * modifier).toFixed(2),
+          updatedAt: Date.now()
         };
       }
       return product;
@@ -178,7 +196,7 @@ export default function CoffeePriceList() {
     setShowBulkUpdateModal(false);
   };
   
-  // Function to add a new product
+  // Add a new product
   const handleAddProduct = () => {
     if (newProduct.name && newProduct.price) {
       const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
@@ -186,7 +204,8 @@ export default function CoffeePriceList() {
         id: newId,
         name: newProduct.name, 
         price: parseFloat(newProduct.price),
-        category: newProduct.category
+        category: newProduct.category,
+        updatedAt: Date.now()
       }];
       setProducts(updatedProducts);
       setNewProduct({ name: '', price: '', category: 'Arabica' });
@@ -194,19 +213,42 @@ export default function CoffeePriceList() {
     }
   };
   
-  // Function to delete a product
-  const handleDeleteProduct = (id) => {
-    setProducts(products.filter(product => product.id !== id));
+  // Delete a product with proper sync
+  const handleDeleteProduct = async (id) => {
+    setIsDeleting(true);
+    const productToDelete = products.find(p => p.id === id);
+    const updatedProducts = products.filter(product => product.id !== id);
+    
+    // Optimistic UI update
+    setProducts(updatedProducts);
+    localStorage.setItem('coffee-products', JSON.stringify(updatedProducts));
+    
+    try {
+      if (firebaseInitialized) {
+        await saveToFirebase('products', updatedProducts);
+      }
+    } catch (error) {
+      console.error('Delete failed:', error);
+      // Revert if Firebase update fails
+      setProducts(products);
+      localStorage.setItem('coffee-products', JSON.stringify(products));
+    } finally {
+      setIsDeleting(false);
+    }
   };
   
-  // Function to update a product's price
+  // Update product price
   const handlePriceChange = (id, newPrice) => {
     setProducts(products.map(product => 
-      product.id === id ? { ...product, price: parseFloat(newPrice) || 0 } : product
+      product.id === id ? { 
+        ...product, 
+        price: parseFloat(newPrice) || 0,
+        updatedAt: Date.now()
+      } : product
     ));
   };
   
-  // Function to add a new category
+  // Add new category
   const handleAddCategory = () => {
     if (newCategory && !categories.includes(newCategory)) {
       const updatedCategories = [...categories, newCategory];
@@ -215,14 +257,14 @@ export default function CoffeePriceList() {
     }
   };
   
-  // Function to delete a category
+  // Delete category
   const handleDeleteCategory = (categoryToDelete) => {
-    // Update any products in this category to the first available category
     const updatedProducts = products.map(product => {
       if (product.category === categoryToDelete) {
         return {
           ...product,
-          category: categories.filter(c => c !== categoryToDelete)[0] || 'Uncategorized'
+          category: categories.filter(c => c !== categoryToDelete)[0] || 'Uncategorized',
+          updatedAt: Date.now()
         };
       }
       return product;
@@ -233,7 +275,7 @@ export default function CoffeePriceList() {
     setCategories(updatedCategories);
   };
   
-  // Function to save Firebase config
+  // Save Firebase config
   const saveFirebaseConfig = () => {
     localStorage.setItem('firebase-config', JSON.stringify(firebaseConfig));
     alert('Firebase configuration saved successfully!');
