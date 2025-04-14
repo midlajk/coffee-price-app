@@ -29,7 +29,6 @@ export default function CoffeePriceList() {
   });
   const [firebaseInitialized, setFirebaseInitialized] = useState(false);
   const [db, setDb] = useState(null);
-  const [userId, setUserId] = useState('');
 
   // Initialize Firebase when config changes
   useEffect(() => {
@@ -39,17 +38,6 @@ export default function CoffeePriceList() {
         const database = getDatabase(app);
         setDb(database);
         setFirebaseInitialized(true);
-        
-        // Generate or get a user ID for this device
-        const storedUserId = localStorage.getItem('firebase-user-id');
-        if (storedUserId) {
-          setUserId(storedUserId);
-        } else {
-          const newUserId = `user-${Date.now()}`;
-          localStorage.setItem('firebase-user-id', newUserId);
-          setUserId(newUserId);
-        }
-        
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 3000);
       } catch (error) {
@@ -91,15 +79,16 @@ export default function CoffeePriceList() {
 
   // Set up Firebase listener when initialized
   useEffect(() => {
-    if (firebaseInitialized && db && userId) {
-      const productsRef = ref(db, `users/${userId}/products`);
-      const categoriesRef = ref(db, `users/${userId}/categories`);
+    if (firebaseInitialized && db) {
+      const productsRef = ref(db, 'sharedData/products');
+      const categoriesRef = ref(db, 'sharedData/categories');
       
       // Set up products listener
       onValue(productsRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-          const productsArray = Object.keys(data).map(key => data[key]);
+          // Convert object to array if needed
+          const productsArray = Array.isArray(data) ? data : Object.values(data);
           setProducts(productsArray);
           localStorage.setItem('coffee-products', JSON.stringify(productsArray));
         }
@@ -120,14 +109,14 @@ export default function CoffeePriceList() {
         off(categoriesRef);
       };
     }
-  }, [firebaseInitialized, db, userId]);
+  }, [firebaseInitialized, db]);
 
   // Save to Firebase when data changes
   const saveToFirebase = async (dataType, data) => {
-    if (firebaseInitialized && db && userId) {
+    if (firebaseInitialized && db) {
       try {
         setSyncStatus('syncing');
-        await set(ref(db, `users/${userId}/${dataType}`), data);
+        await set(ref(db, `sharedData/${dataType}`), data);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 2000);
       } catch (error) {
