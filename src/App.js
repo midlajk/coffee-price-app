@@ -444,6 +444,18 @@ export default function CoffeePriceList() {
           <div className="mb-4">
             <h2 className="text-xl font-semibold mb-2 text-amber-900">Cloud Sync Settings</h2>
             <div className="border border-amber-300 rounded bg-white p-3">
+            <p className="mb-2">
+                Connection: <span className={`font-bold ${
+                  firebaseInitialized ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {firebaseInitialized ? 'Connected' : 'Not Connected'}
+                </span>
+              </p>
+              <p className="text-sm text-amber-800 mb-3">
+                {firebaseInitialized 
+                  ? 'Your data is syncing with Firebase in real-time'
+                  : 'Configure Firebase to enable cloud sync'}
+              </p>
               <p className="mb-2 text-sm text-amber-800">
                 Configure Firebase to sync your data across all devices.
               </p>
