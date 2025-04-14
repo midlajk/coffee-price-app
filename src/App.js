@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Percent, Save, Plus, Trash2, Filter, ChevronDown, ChevronUp, Settings, X, Edit } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue, off } from 'firebase/database';
 
 export default function CoffeePriceList() {
   // State management
@@ -13,20 +15,52 @@ export default function CoffeePriceList() {
   const [newCategory, setNewCategory] = useState('');
   
   // UI state
-  const [view, setView] = useState('products'); // products, management, settings
+  const [view, setView] = useState('products');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('idle'); // idle, syncing, error, success
+  const [syncStatus, setSyncStatus] = useState('idle');
   
-  // Firebase-like config (would be replaced with your actual Firebase credentials)
+  // Firebase state
   const [firebaseConfig, setFirebaseConfig] = useState({
     apiKey: '',
     databaseURL: '',
     projectId: ''
   });
-  
-  // Load data from local storage initially, then try to fetch from shared storage
+  const [firebaseInitialized, setFirebaseInitialized] = useState(false);
+  const [db, setDb] = useState(null);
+  const [userId, setUserId] = useState('');
+
+  // Initialize Firebase when config changes
+  useEffect(() => {
+    if (firebaseConfig.apiKey && firebaseConfig.databaseURL && !firebaseInitialized) {
+      try {
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        setDb(database);
+        setFirebaseInitialized(true);
+        
+        // Generate or get a user ID for this device
+        const storedUserId = localStorage.getItem('firebase-user-id');
+        if (storedUserId) {
+          setUserId(storedUserId);
+        } else {
+          const newUserId = `user-${Date.now()}`;
+          localStorage.setItem('firebase-user-id', newUserId);
+          setUserId(newUserId);
+        }
+        
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      } catch (error) {
+        console.error('Firebase initialization error:', error);
+        setSyncStatus('error');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      }
+    }
+  }, [firebaseConfig]);
+
+  // Load data from local storage initially, then try to fetch from Firebase
   useEffect(() => {
     // First load from localStorage as fallback
     const savedProducts = localStorage.getItem('coffee-products');
@@ -53,18 +87,71 @@ export default function CoffeePriceList() {
     if (storedConfig) {
       setFirebaseConfig(JSON.parse(storedConfig));
     }
-    
-    // Future enhancement: Once Firebase config is set, we would initialize Firebase and fetch data
-    // fetchDataFromFirebase();
   }, []);
 
-  // Save to localStorage whenever data changes
+  // Set up Firebase listener when initialized
+  useEffect(() => {
+    if (firebaseInitialized && db && userId) {
+      const productsRef = ref(db, `users/${userId}/products`);
+      const categoriesRef = ref(db, `users/${userId}/categories`);
+      
+      // Set up products listener
+      onValue(productsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const productsArray = Object.keys(data).map(key => data[key]);
+          setProducts(productsArray);
+          localStorage.setItem('coffee-products', JSON.stringify(productsArray));
+        }
+      });
+      
+      // Set up categories listener
+      onValue(categoriesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setCategories(data);
+          localStorage.setItem('coffee-categories', JSON.stringify(data));
+        }
+      });
+      
+      // Cleanup function
+      return () => {
+        off(productsRef);
+        off(categoriesRef);
+      };
+    }
+  }, [firebaseInitialized, db, userId]);
+
+  // Save to Firebase when data changes
+  const saveToFirebase = async (dataType, data) => {
+    if (firebaseInitialized && db && userId) {
+      try {
+        setSyncStatus('syncing');
+        await set(ref(db, `users/${userId}/${dataType}`), data);
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      } catch (error) {
+        console.error('Firebase save error:', error);
+        setSyncStatus('error');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      }
+    }
+  };
+
+  // Save to localStorage and Firebase whenever products change
   useEffect(() => {
     localStorage.setItem('coffee-products', JSON.stringify(products));
+    if (firebaseInitialized) {
+      saveToFirebase('products', products);
+    }
   }, [products]);
   
+  // Save to localStorage and Firebase whenever categories change
   useEffect(() => {
     localStorage.setItem('coffee-categories', JSON.stringify(categories));
+    if (firebaseInitialized) {
+      saveToFirebase('categories', categories);
+    }
   }, [categories]);
   
   // Filter products based on search and category
@@ -73,21 +160,15 @@ export default function CoffeePriceList() {
     (selectedCategory === 'All' || product.category === selectedCategory)
   );
   
-  // Function to sync data with cloud storage (placeholder for actual implementation)
+  // Function to sync data with Firebase
   const syncWithCloud = () => {
-    setSyncStatus('syncing');
-    
-    // Placeholder for actual API call
-    setTimeout(() => {
-      if (firebaseConfig.apiKey && firebaseConfig.databaseURL) {
-        // This would be an actual API call in a real implementation
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus('idle'), 3000);
-      } else {
-        setSyncStatus('error');
-        setTimeout(() => setSyncStatus('idle'), 3000);
-      }
-    }, 1500);
+    if (firebaseInitialized) {
+      saveToFirebase('products', products);
+      saveToFirebase('categories', categories);
+    } else {
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    }
   };
   
   // Function to handle bulk price updates
@@ -112,12 +193,13 @@ export default function CoffeePriceList() {
   const handleAddProduct = () => {
     if (newProduct.name && newProduct.price) {
       const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
-      setProducts([...products, { 
+      const updatedProducts = [...products, { 
         id: newId,
         name: newProduct.name, 
         price: parseFloat(newProduct.price),
         category: newProduct.category
-      }]);
+      }];
+      setProducts(updatedProducts);
       setNewProduct({ name: '', price: '', category: 'Arabica' });
       setShowAddProductModal(false);
     }
@@ -138,7 +220,8 @@ export default function CoffeePriceList() {
   // Function to add a new category
   const handleAddCategory = () => {
     if (newCategory && !categories.includes(newCategory)) {
-      setCategories([...categories, newCategory]);
+      const updatedCategories = [...categories, newCategory];
+      setCategories(updatedCategories);
       setNewCategory('');
     }
   };
@@ -157,15 +240,17 @@ export default function CoffeePriceList() {
     });
     
     setProducts(updatedProducts);
-    setCategories(categories.filter(category => category !== categoryToDelete));
+    const updatedCategories = categories.filter(category => category !== categoryToDelete);
+    setCategories(updatedCategories);
   };
   
   // Function to save Firebase config
   const saveFirebaseConfig = () => {
     localStorage.setItem('firebase-config', JSON.stringify(firebaseConfig));
-    alert('Configuration saved. You will need to implement actual Firebase connectivity.');
+    alert('Firebase configuration saved successfully!');
   };
 
+  // ... (rest of your component remains the same, including the JSX rendering)
   return (
     <div className="p-4 max-w-md mx-auto bg-amber-50 min-h-screen">
       <h1 className="text-2xl font-bold mb-4 text-amber-900 text-center">Coffee Price Manager</h1>
